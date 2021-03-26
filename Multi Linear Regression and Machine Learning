@@ -97,7 +97,7 @@ bike13at <- SeoulBikeData[2:14]
 # the attributes listed as factor will need to be dummy coded in order for the regression to work
 # dummy code variables that have two levels are coded 1/0
 bike13at$Holiday <- ifelse(bike13at$Holiday == "Yes", 1, 0)
-bike13at$FunctioningDay <- ifelse(bike13at$FunctioningDay == "Holiday", 1, 0)
+bike13at$FunctioningDay <- ifelse(bike13at$FunctioningDay == "Yes", 1, 0)
 
 # dummy code variables that have three or more levels
 Seasons_dummy13MLR <- as.data.frame(dummy.code(bike13at$Seasons))
