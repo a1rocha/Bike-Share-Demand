@@ -6,22 +6,31 @@ git branch -M main
 git remote add origin https://github.com/a1rocha/Bike-Share-Demand.git
 git push -u origin main
 
-#install.packages("FNN")
-#install.packages("RCurl")
-#install.packages("MASS")
-#install.packages("leaps")
-#install.packages("PerformanceAnalytics")
-#install.packages("class")
-#install.packages("gmodels")
-#install.packages("psych")
-library(FNN)
-library(RCurl)
-library(MASS)
-library(leaps)
-library(PerformanceAnalytics)
-library(class)
-library(gmodels)
-library(psych)
+# Bike Share Demand Project with adjustments
+
+# Packages needed in this project
+# install.packages("FNN")
+# install.packages("RCurl")
+# install.packages("MASS")
+# install.packages("leaps")
+# install.packages("PerformanceAnalytics")
+# install.packages("class")
+# install.packages("gmodels")
+# install.packages("psych")
+# install.packages("party")
+# install.packages("caret")
+# install.packages("e1071")
+# library(FNN)
+# library(RCurl)
+# library(MASS)
+# library(leaps)
+# library(PerformanceAnalytics)
+# library(class)
+# library(gmodels)
+# library(psych)
+# library(party)
+# library(caret)
+# library(e1071)
 
 # Multi Linear Regression
 
@@ -37,22 +46,36 @@ numberNAs <- sum((is.na(SeoulBikeData)))
 # checking the summary of the dataset
 summary(SeoulBikeData)
 
-# checking the structure of the dataset 
+# checking the structure of the dataset
 str(SeoulBikeData)
 
 # visualize chart.correlation() with 10 attributes
 chart.Correlation(bike10at, histogram = TRUE, method = "pearson")
 
+# testing different methods as parameter in the function above first "kendall" and then "spearman"
+chart.Correlation(bike10at, histogram = TRUE, method = "kendall")
+chart.Correlation(bike10at, histogram = TRUE, method = "spearman")
+
+# first we need to normalize the data to minimize errors due to different scales of measured variables
+normalize <- function(x){
+  return((x-min(x))/(max(x)-min(x)))
+}
+
+bikepartial_n <- as.data.frame(lapply(bike10at, normalize))
+
+# using set.seed to have reproducible results
+set.seed(1000)
+
 # splitting dataset into train (70%) and test (30%)
 # we do not want the train and test sets to have any data points in common
-b_train <- sample(nrow(bike10at), floor(nrow(bike10at)*0.7))
-train10 <- bike10at[b_train,]
-test10 <- bike10at[-b_train,]
+b_train <- sample(nrow(bikepartial_n), floor(nrow(bikepartial_n)*0.7))
+train10 <- bikepartial_n[b_train,]
+test10 <- bikepartial_n[-b_train,]
 
 # creating linear model using 10 attributes
 model_mlr10 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
                     Visibility+DewPointTemperature+SolarRadiation+
-                    Rainfall+Snowfall, data = train10)
+                    Rainfall+Snowfall, data = bikepartial_n)
 summary(model_mlr10)
 anova(model_mlr10)
 
@@ -68,28 +91,78 @@ plot(density(errors10))
 rmse10 <- sqrt(sum((prediction10[,"fit"]-test10$RentedBikeCount)^2)/nrow(test10))
 rmse10
 
-# applying forward selection
+# defining parameters for stepwise regression
 full10 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
                Visibility+DewPointTemperature+SolarRadiation+
-               Rainfall+Snowfall, data = bike10at)
-null10 <- lm(RentedBikeCount~1, data = bike10at)
+               Rainfall+Snowfall, data = bikepartial_n)
+null10 <- lm(RentedBikeCount~1, data = bikepartial_n)
 
+# applying forward selection
 stepf10 <- stepAIC(null10, scope = list(lower=null10, upper=full10), direction = "forward", trace = TRUE)
 summary(stepf10)
 
 # applying backward elimination
-full10 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
-               Visibility+DewPointTemperature+SolarRadiation+
-               Rainfall+Snowfall, data = bike10at)
 stepb10 <- stepAIC(full10, direction = "backward", trace = TRUE)
 summary(stepb10)
+
+# applying stepwise regression
+stepw10 <- stepAIC(null10, scope = list(lower=null10, upper=full10), direction = "both", trace = TRUE)
+summary(stepw10)
 
 # checking the best combination between 10 attributes
 subsets10 <- regsubsets(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
                           Visibility+DewPointTemperature+SolarRadiation+
-                          Rainfall+Snowfall, data = bike10at, nbest = 1)
+                          Rainfall+Snowfall, data = bikepartial_n, nbest = 1)
 sub.sum10 <- summary(subsets10)
-as.data.frame(sub.sum10$outmat)
+
+all10 <- regsubsets(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
+                      Visibility+DewPointTemperature+SolarRadiation+
+                      Rainfall+Snowfall, data = bikepartial_n, nbest = 1, nvmax = 10)
+info10 <- summary(all10)
+table10 <- cbind(info10$which, round(cbind(rsq=info10$rsq, adjr2=info10$adjr2, cp=info10$cp, bic=info10$bic, 
+                                rss=info10$rss), 3))
+
+#knn regression partial model
+
+# making a copy of the data using only numeric attributes excluding the dependent variable
+knnReg_partial <- bike10at
+
+# making the outcome its own object
+RentedBikeOutcomePartialM <- knnReg_partial$RentedBikeCount 
+
+# using normalize function in the dataset
+bike11at_n <- as.data.frame(lapply(bike11atML[2:11], normalize))
+knnReg_partial_n <- as.data.frame(lapply(knnReg_partial[2:10], normalize))
+
+#binding the target variable to the dataset
+knnReg_partial_n <- cbind(RentedBikeOutcomePartialM, knnReg_partial_n)
+
+# using set.seed to have reproducible results
+set.seed(1000)
+
+# splitting dataset into train (70%) and test (30%)
+# we do not want the train and test sets to have any data points in common
+# dividing the dataset into test and train sets
+indexKNNp <- sample(nrow(knnReg_partial_n), 0.70*nrow(knnReg_partial_n))
+trainKNNpart <- knnReg_partial_n[indexKNNp,]
+testKNNpart <- knnReg_partial_n[-indexKNNp,]
+
+# creating the labels
+trainKNNpart_labels <- trainKNNpart[,1]
+testKNNpart_labels <- testKNNpart[,1]
+
+# building the regression function
+regKNNp <- knn.reg(trainKNNpart[,2:10], testKNNpart[,2:10], trainKNNpart[,1], k = 78)
+print(regKNNp)
+
+# plotting the predicted results printed above against the actual values of the outcome variable test set
+plot(testKNNpart[,1], regKNNp$pred, xlab = "y", ylab = expression(hat(y)))
+
+# mean squared errors prediction for knn partial model
+MSEknnpartial <- mean((testKNNpart_labels - regKNNp$pred) ^ 2)
+
+#mean absolute errors prediction for knn partial model
+MAEknnpartial <- mean(abs(testKNNpart_labels - regKNNp$pred))
 
 # slicing dataframe to work with 13 attributes
 bike13at <- SeoulBikeData[2:14]
@@ -108,14 +181,24 @@ bike13at <- cbind(bike13at, Seasons_dummy13MLR)
 # removing the original variable with more three or more levels
 bike13at <- bike13at[-11]
 
-# visualize chart.correlation() with 13 attributes 
+# visualize chart.correlation() with 13 attributes
 chart.Correlation(bike13at, histogram = TRUE, method = "pearson")
+
+# testing different methods as parameter in the function above first "kendall" and then "spearman"
+chart.Correlation(bike13at, histogram = TRUE, method = "kendall")
+chart.Correlation(bike13at, histogram = TRUE, method = "spearman")
+
+# first we need to normalize the data to minimize errors due to different scales of measured variables
+bikefull_n <- as.data.frame(lapply(bike13at, normalize))
+
+# using set.seed to have reproducible results
+set.seed(1000)
 
 # splitting dataset into train (70%) and test (30%)
 # we do not want the train and test sets to have any data points in common
-c_train <- sample(nrow(bike13at), floor(nrow(bike13at)*0.7))
-train13 <- bike13at[c_train,]
-test13 <- bike13at[-c_train,]
+c_train <- sample(nrow(bikefull_n), floor(nrow(bikefull_n)*0.7))
+train13 <- bikefull_n[c_train,]
+test13 <- bikefull_n[-c_train,]
 
 # creating linear model using 13 attributes
 model_mlr13 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
@@ -136,36 +219,103 @@ errors13 <- prediction13[,"fit"] - test13$RentedBikeCount
 hist(errors13)
 plot(density(errors13))
 
-# calculating rmse - root mean squared errors for 10 attributes
+# calculating rmse - root mean squared errors for 13 attributes
 rmse13 <- sqrt(sum((prediction13[,"fit"]-test13$RentedBikeCount)^2)/nrow(test13))
 rmse13
 
-# applying forward selection
+# defining parameters for stepwise regression
 full13 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
                Visibility+DewPointTemperature+SolarRadiation+
                Rainfall+Snowfall+Holiday+FunctioningDay+Spring+
-               Summer+Autumn+Winter, data = bike13at)
-null13 <- lm(RentedBikeCount~1, data = bike13at)
+               Summer+Autumn+Winter, data = bikefull_n)
+null13 <- lm(RentedBikeCount~1, data = bikefull_n)
+
+# applying forward selection
 stepf13 <- stepAIC(null13, scope = list(lower=null13, upper=full13), direction = "forward", trace = TRUE)
 summary(stepf13)
 
 # applying backward elimination
-full13 <- lm(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
-               Visibility+DewPointTemperature+SolarRadiation+
-               Rainfall+Snowfall+Holiday+FunctioningDay+Spring+
-               Summer+Autumn+Winter, data = bike13at)
 stepb13 <- stepAIC(full13, direction = "backward", trace = TRUE)
 summary(stepb13)
+
+# applying stepwise regression
+stepw13 <- stepAIC(null13, scope = list(lower=null13, upper=full13), direction = "both", trace = TRUE)
+summary(stepw13)
 
 # checking the best combination between 13 attributes
 subsets13 <- regsubsets(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
                           Visibility+DewPointTemperature+SolarRadiation+
                           Rainfall+Snowfall+Holiday+FunctioningDay+
-                          Spring+Summer+Autumn+Winter, data = bike13at, nbest = 1)
+                          Spring+Summer+Autumn+Winter, data = bikefull_n, nbest = 1)
 sub.sum13 <- summary(subsets13)
-as.data.frame(sub.sum13$outmat)
+
+all13 <- regsubsets(RentedBikeCount~Hour+Temperature+Humidity+WindSpeed+
+                      Visibility+DewPointTemperature+SolarRadiation+
+                      Rainfall+Snowfall, data = bikepartial_n, nbest = 1, nvmax = 16)
+info13 <- summary(all13)
+table13 <- cbind(info13$which, round(cbind(rsq=info13$rsq, adjr2=info13$adjr2, cp=info13$cp, bic=info13$bic, 
+                                           rss=info13$rss), 3))
+
+# knn regression full model
+
+# making a copy of the data using only numeric attributes excluding the dependent variable
+knnReg_full <- bike13at
+
+# making the outcome its own object
+RentedBikeOutcomeFullM <- knnReg_full$RentedBikeCount
+
+# the attributes listed as factor will need to be dummy coded in order for the regression to work
+# dummy code variables that have two levels are coded 1/0
+knnReg_full$Holiday <- ifelse(knnReg_full$Holiday == "Yes", 1, 0)
+knnReg_full$FunctioningDay <- ifelse(knnReg_full$FunctioningDay == "Yes", 1, 0)
+
+# dummy code variables that have three or more levels
+Seasons_dummyKNN_MLR <- as.data.frame(dummy.code(knnReg_full$Seasons))
+
+# combining the dummy variables to the dataset
+knnReg_full <- cbind(knnReg_full, Seasons_dummyKNN_MLR)
+
+# removing the original variable with more three or more levels
+knnReg_full <- knnReg_full[-11]
+
+#gotta finish adapting the code for knn full model from this point
+
+# using normalize function in the dataset
+knnReg_full_n <- as.data.frame(lapply(knnReg_full[2:16], normalize))
+
+#binding the target variable to the dataset
+knnReg_full_n <- cbind(RentedBikeOutcomeFullM, knnReg_full_n)
+
+# using set.seed to have reproducible results
+set.seed(1000)
+
+# splitting dataset into train (70%) and test (30%)
+# we do not want the train and test sets to have any data points in common
+# dividing the dataset into test and train sets
+indexKNNf <- sample(nrow(knnReg_full_n), 0.70*nrow(knnReg_full_n))
+trainKNNfull <- knnReg_full_n[indexKNNf,]
+testKNNfull <- knnReg_full_n[-indexKNNf,]
+
+# creating the labels
+trainKNNfull_labels <- trainKNNfull[,1]
+testKNNfull_labels <- testKNNfull[,1]
+
+# building the regression function # k was chosen based on being roughly the square root of the sample size
+# in this case 6132 for the train set
+regKNNf <- knn.reg(trainKNNfull[,2:16], testKNNfull[,2:16], trainKNNfull[,1], k = 78)
+print(regKNNf)
+
+# plotting the predicted results printed above against the actual values of the outcome variable test set
+plot(testKNNfull[,1], regKNNf$pred, xlab = "y", ylab = expression(hat(y)))
+
+# mean squared errors prediction for knn partial model
+MSEknnfull <- mean((testKNNfull_labels - regKNNf$pred) ^ 2)
+
+#mean absolute errors prediction for knn partial model
+MAEknnfull <- mean(abs(testKNNfull_labels - regKNNf$pred))
 
 #*****************************************************************************************#
+
 # Machine Learning
 
 # excluding date for dataset, dividing the RentedBikeCount attribute
@@ -181,9 +331,9 @@ bike11atML <- cbind(RentedBikeFactor, bike11atML)
 
 # using cut function to transform the RentedBikeCount into a factor
 bike11atML$RentedBikeFactor <- cut(SeoulBikeData$RentedBikeCount, breaks = seq(0,3600, by = 240),
-                                  labels = c("1","2","3","4","5","6","7","8","9","10","11","12",
-                                             "13","14","15"),
-                                  include.lowest = TRUE)
+                                   labels = c("1","2","3","4","5","6","7","8","9","10","11","12",
+                                              "13","14","15"),
+                                   include.lowest = TRUE)
 
 
 # creating the normalize function
@@ -213,9 +363,11 @@ test11knn_labels <- test11knn[,1]
 
 # we have to decide on the number of neighbors (k). There are several rules of thumb, 
 # one being the square root of the number of observations in the training set. 
-# In this case, we select 93 or 94 as the number of neighbors, which is approximately the square 
-# root of our sample size N = 8760
-train11knn_pred <- knn(train = train11knn[,2:11], test = test11knn[,2:11], cl = train11knn[,1], k = 93)
+# In this case, we select 78 or 79 as the number of neighbors, which is approximately the square 
+# root of our sample size N = 6132
+train11knn_pred <- knn(train = train11knn[,2:11], test = test11knn[,2:11], cl = train11knn[,1], k = 78)
+
+# constructing the confusion matrix: the order is TN || FP || FN || TP
 
 cm11 <- table(Actual = test11knn_labels, Predicted = train11knn_pred)
 cm11
@@ -225,6 +377,17 @@ cm11
 
 accuracy_func<- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
 accuracy_func(cm11)
+
+#picking the optimal number of neighbors (k) for the model with 10 attributes
+RBF10_pred_caret <- train(train11knn[,2:11], train11knn[,1], method = "knn",
+                          preProcess = c("center", "scale"))
+RBF10_pred_caret
+
+# k = 9 for optimal model, that is when kappa peaked
+knnPredict11 <- predict(RBF10_pred_caret, newdata = test11knn[,2:11])
+
+ConfM11 <- confusionMatrix(knnPredict11, test11knn_labels)
+ConfM11
 
 # ML working with all the attributes in the dataset
 bike14atML <- SeoulBikeData[2:14]
@@ -273,9 +436,9 @@ test14knn_labels <- test14knn[,1]
 
 # we have to decide on the number of neighbors (k). There are several rules of thumb, 
 # one being the square root of the number of observations in the training set. 
-# In this case, we select 93 or 94 as the number of neighbors, which is approximately the square 
-# root of our sample size N = 8760
-train14knn_pred <- knn(train = train14knn[,2:17], test = test14knn[,2:17], cl = train14knn[,1], k = 93)
+# In this case, we select 78 as the number of neighbors, which is approximately the square 
+# root of our sample size N = 6132
+train14knn_pred <- knn(train = train14knn[,2:17], test = test14knn[,2:17], cl = train14knn[,1], k = 78)
 
 cm14 <- table(Actual = test14knn_labels, Predicted = train14knn_pred)
 cm14
@@ -284,4 +447,17 @@ cm14
 accuracy14 <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
 accuracy14(cm14)
 
-#**********************************************************************************#
+
+#picking the optimal number of neighbors (k) for the full model
+RBF14_pred_caret <- train(train14knn[,2:17], train14knn[,1], method = "knn",
+                          preProcess = c("center", "scale"))
+RBF14_pred_caret
+
+# k = 5 for optimal model, that is when kappa peaked
+
+knnPredict14 <- predict(RBF14_pred_caret, newdata = test14knn[,2:17])
+
+ConfM14 <-confusionMatrix(knnPredict14, test14knn_labels)
+ConfM14
+
+#*****************************************************************************************************************#
